@@ -70,6 +70,7 @@ export default function Dashboard() {
       { id: 3, name: "Bedroom Temperature", reading: "29°C", alert: true },
       { id: 4, name: "Fall Detector (Wrist Tag)", reading: "Inactive", alert: false },
       { id: 5, name: "Kitchen Temp", reading: "35°C", alert: true },
+      { id: 6, name: "Fridge Door", reading: "Closed", alert: false } 
     ];
     setSensorData(dummyData);
     setLoading(false);
