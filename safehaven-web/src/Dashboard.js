@@ -1,6 +1,7 @@
 // SafeHaven Full Dashboard.js
 
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
 // ======= Dashboard Component =======
 
@@ -160,17 +161,77 @@ const loginButtonHoverStyle = {
 };
 
 export function Login() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const response = await fetch("http://localhost:5000/api/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username, password }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("user", JSON.stringify(data.user));
+        navigate("/dashboard");
+      } else {
+        setError(data.error || "Login failed");
+      }
+    } catch (err) {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div style={loginContainerStyle}>
-      <form style={formStyle}>
+      <form style={formStyle} onSubmit={handleSubmit}>
         <h2>Welcome to SafeHaven!</h2>
-        <input type="text" placeholder="Username" style={inputStyle} />
-        <input type="password" placeholder="Password" style={inputStyle} />
+        {error && (
+          <div style={{ color: "#e74c3c", marginBottom: "10px" }}>{error}</div>
+        )}
+        <input
+          type="text"
+          placeholder="Username"
+          style={inputStyle}
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+        />
+        <input
+          type="password"
+          placeholder="Password"
+          style={inputStyle}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
         <button
-            style={loginButtonStyle}
-            onMouseEnter={(e) => Object.assign(e.target.style, loginButtonHoverStyle)}
-            onMouseLeave={(e) => Object.assign(e.target.style, loginButtonStyle)}
-            >Login
+          type="submit"
+          style={loginButtonStyle}
+          disabled={loading}
+          onMouseEnter={(e) =>
+            !loading && Object.assign(e.target.style, loginButtonHoverStyle)
+          }
+          onMouseLeave={(e) =>
+            Object.assign(e.target.style, loginButtonStyle)
+          }
+        >
+          {loading ? "Logging in..." : "Login"}
         </button>
       </form>
     </div>

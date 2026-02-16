@@ -1,6 +1,12 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
-import Dashboard, { Login, Logs } from "./Dashboard"; 
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Link,
+  Navigate,
+} from "react-router-dom";
+import Dashboard, { Login, Logs } from "./Dashboard";
 import Notifications from "./Notifications";
 
 const appStyle = {
@@ -33,6 +39,10 @@ const navItemHoverStyle = {
   textShadow: "0 0 8px #ffffff",
 };
 
+function ProtectedRoute({ children }) {
+  const token = localStorage.getItem("token");
+  return token ? children : <Navigate to="/" replace />;
+}
 
 function App() {
   return (
@@ -41,26 +51,83 @@ function App() {
         <header style={navbarStyle}>
           <div style={{ fontSize: "20px", fontWeight: "bold" }}>SafeHaven</div>
           <nav>
-            <Link to="/"style={navItemStyle}onMouseEnter={(e) =>Object.assign(e.target.style, navItemHoverStyle)}
+            <Link
+              to="/"
+              style={navItemStyle}
+              onMouseEnter={(e) =>
+                Object.assign(e.target.style, navItemHoverStyle)
+              }
               onMouseLeave={(e) =>
-              Object.assign(e.target.style, navItemStyle)}>Login </Link>
-            <Link to="/dashboard"style={navItemStyle}onMouseEnter={(e) =>Object.assign(e.target.style, navItemHoverStyle)}
+                Object.assign(e.target.style, navItemStyle)
+              }
+            >
+              Login
+            </Link>
+            <Link
+              to="/dashboard"
+              style={navItemStyle}
+              onMouseEnter={(e) =>
+                Object.assign(e.target.style, navItemHoverStyle)
+              }
               onMouseLeave={(e) =>
-              Object.assign(e.target.style, navItemStyle)}>Dashboard </Link>
-            <Link to="/logs"style={navItemStyle}onMouseEnter={(e) =>Object.assign(e.target.style, navItemHoverStyle)}
+                Object.assign(e.target.style, navItemStyle)
+              }
+            >
+              Dashboard
+            </Link>
+            <Link
+              to="/logs"
+              style={navItemStyle}
+              onMouseEnter={(e) =>
+                Object.assign(e.target.style, navItemHoverStyle)
+              }
               onMouseLeave={(e) =>
-              Object.assign(e.target.style, navItemStyle)}>Logs </Link>
-            <Link to="/notifications"style={navItemStyle}onMouseEnter={(e) =>Object.assign(e.target.style, navItemHoverStyle)}
+                Object.assign(e.target.style, navItemStyle)
+              }
+            >
+              Logs
+            </Link>
+            <Link
+              to="/notifications"
+              style={navItemStyle}
+              onMouseEnter={(e) =>
+                Object.assign(e.target.style, navItemHoverStyle)
+              }
               onMouseLeave={(e) =>
-              Object.assign(e.target.style, navItemStyle)}>Notifications </Link>
+                Object.assign(e.target.style, navItemStyle)
+              }
+            >
+              Notifications
+            </Link>
           </nav>
         </header>
 
         <Routes>
           <Route path="/" element={<Login />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/logs" element={<Logs />} />
-          <Route path="/notifications" element={<Notifications />} />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/logs"
+            element={
+              <ProtectedRoute>
+                <Logs />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute>
+                <Notifications />
+              </ProtectedRoute>
+            }
+          />
         </Routes>
       </div>
     </Router>
