@@ -60,21 +60,37 @@ const dashboardButtonStyle = {
   fontWeight: "bold"
 };
 
+const API_BASE = "http://localhost:5000";
+
 export default function Dashboard() {
   const [sensorData, setSensorData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    const dummyData = [
-      { id: 1, name: "Living Room Motion", reading: "No motion", alert: false },
-      { id: 2, name: "Main Door", reading: "Closed", alert: false },
-      { id: 3, name: "Bedroom Temperature", reading: "29°C", alert: true },
-      { id: 4, name: "Fall Detector (Wrist Tag)", reading: "Inactive", alert: false },
-      { id: 5, name: "Kitchen Temp", reading: "35°C", alert: true },
-      { id: 6, name: "Fridge Door", reading: "Closed", alert: false } 
-    ];
-    setSensorData(dummyData);
-    setLoading(false);
+    let cancelled = false;
+    const token = localStorage.getItem("token");
+
+    async function fetchSensors() {
+      try {
+        const res = await fetch(`${API_BASE}/api/sensors`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) throw new Error("Failed to load sensors");
+        const data = await res.json();
+        if (!cancelled) setSensorData(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "Failed to load sensor data");
+          setSensorData([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchSensors();
+    return () => { cancelled = true; };
   }, []);
 
   const acknowledgeAlert = (id) => {
@@ -91,6 +107,8 @@ export default function Dashboard() {
 
       {loading ? (
         <p style={{ marginTop: "20px", color: "#aaa" }}>Loading sensor data...</p>
+      ) : error ? (
+        <p style={{ marginTop: "20px", color: "#e74c3c" }}>{error}</p>
       ) : (
         <div style={gridStyle}>
           {sensorData.map((sensor) => (
@@ -240,25 +258,57 @@ export function Login() {
 
 // ======= Logs Page =======
 
+const API_BASE_LOGS = "http://localhost:5000";
+
 export function Logs() {
-  const logs = [
-    { id: 1, message: "Motion detected in Living Room", time: "2025-07-22 14:33" },
-    { id: 2, message: "Temperature Alert: Kitchen 35°C", time: "2025-07-22 13:12" },
-    { id: 3, message: "Main Door opened", time: "2025-07-22 11:45" },
-  ];
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const token = localStorage.getItem("token");
+
+    async function fetchLogs() {
+      try {
+        const res = await fetch(`${API_BASE_LOGS}/api/logs`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) throw new Error("Failed to load logs");
+        const data = await res.json();
+        if (!cancelled) setLogs(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "Failed to load alert logs");
+          setLogs([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchLogs();
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div style={{ padding: "24px" }}>
       <h1>Alert Log</h1>
       <p style={{ color: "#bbb" }}>Historical records of alerts and sensor events</p>
-      <ul style={{ marginTop: "20px", listStyle: "none", paddingLeft: 0 }}>
-        {logs.map((log) => (
-          <li key={log.id} style={{ backgroundColor: "#2e2e3e", padding: "12px", borderRadius: "8px", marginBottom: "10px" }}>
-            <strong>{log.message}</strong>
-            <div style={{ color: "#999", fontSize: "14px" }}>{log.time}</div>
-          </li>
-        ))}
-      </ul>
+      {loading ? (
+        <p style={{ marginTop: "20px", color: "#aaa" }}>Loading alert logs...</p>
+      ) : error ? (
+        <p style={{ marginTop: "20px", color: "#e74c3c" }}>{error}</p>
+      ) : (
+        <ul style={{ marginTop: "20px", listStyle: "none", paddingLeft: 0 }}>
+          {logs.map((log) => (
+            <li key={log.id} style={{ backgroundColor: "#2e2e3e", padding: "12px", borderRadius: "8px", marginBottom: "10px" }}>
+              <strong>{log.message}</strong>
+              <div style={{ color: "#999", fontSize: "14px" }}>{log.time}</div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -2,11 +2,15 @@ const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+const {
+  DynamoDBClient,
+  ListTablesCommand,
+} = require("@aws-sdk/client-dynamodb");
 const {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
+  QueryCommand,
 } = require("@aws-sdk/lib-dynamodb");
 const crypto = require("crypto");
 require("dotenv").config();
@@ -15,7 +19,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Initialize DynamoDB client
+// Initialize DynamoDB client (users table)
 const dynamoClient = new DynamoDBClient({
   region: process.env.AWS_REGION,
   credentials: {
@@ -26,6 +30,164 @@ const dynamoClient = new DynamoDBClient({
 
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const TABLE_NAME = "users";
+
+// Sensor table may be in a different region (e.g. ca-central-1)
+const sensorRegionRaw = process.env.AWS_SENSOR_TABLE_REGION || "";
+const sensorRegion = sensorRegionRaw.trim() || process.env.AWS_REGION;
+const sensorDynamoClient =
+  sensorRegionRaw.trim() && sensorRegion !== process.env.AWS_REGION
+    ? new DynamoDBClient({
+        region: sensorRegion,
+        credentials: {
+          accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+          secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        },
+      })
+    : dynamoClient;
+const sensorDocClient = DynamoDBDocumentClient.from(sensorDynamoClient);
+const SENSOR_TABLE_NAME =
+  process.env.SENSOR_TABLE_NAME || "SafeHavenSensorData";
+
+// Device IDs we want to show on the dashboard (cpu-01 = combined sensor with door, motion, temp, water, pressure, state)
+const SENSOR_DEVICE_IDS = ["cpu-01"];
+
+function parsePayload(payload) {
+  if (payload == null) return null;
+  if (typeof payload === "object") return payload;
+  if (typeof payload !== "string") return null;
+  try {
+    if (payload.startsWith("{")) return JSON.parse(payload);
+    const decoded = Buffer.from(payload, "base64").toString("utf8");
+    const json = decoded.replace(/^[\s\S]*?Payload:\s*/i, "").trim();
+    return json ? JSON.parse(json) : null;
+  } catch {
+    return null;
+  }
+}
+
+// Get numeric or string value from item (fields may be top-level or inside payload object/string)
+function getPayload(item) {
+  if (!item) return null;
+  const p = item.payload;
+  if (p == null) return item;
+  if (typeof p === "object") return { ...item, ...p };
+  const parsed = parsePayload(p);
+  return parsed ? { ...item, ...parsed } : item;
+}
+function num(item, key) {
+  const doc = getPayload(item);
+  const v = doc[key];
+  return v != null ? Number(v) : null;
+}
+function str(item, key) {
+  const doc = getPayload(item);
+  const v = doc[key];
+  return v != null ? String(v) : null;
+}
+
+// Returns one card or an array of cards
+function mapSensorToCard(deviceId, item) {
+  if (!item) return [];
+
+  // cpu-01: door, water_raw, pressure_raw, motion, water_pct, pressure_pct, state, device, tempC, ts
+  if (deviceId === "cpu-01") {
+    const door = num(item, "door");
+    const waterRaw = num(item, "water_raw");
+    const pressureRaw = num(item, "pressure_raw");
+    const motion = num(item, "motion");
+    const waterPct = num(item, "water_pct");
+    const pressurePct = num(item, "pressure_pct");
+    const state = str(item, "state");
+    const tempC = num(item, "tempC");
+
+    const cards = [];
+
+    cards.push({
+      id: `${deviceId}-temp`,
+      name: "Temperature",
+      reading: tempC != null ? `${tempC}°C` : "No data",
+      alert: tempC != null && (tempC > 35 || tempC < 5),
+    });
+
+    cards.push({
+      id: `${deviceId}-door`,
+      name: "Door",
+      reading: door === 1 ? "Open" : door === 0 ? "Closed" : door != null ? String(door) : "No data",
+      alert: door === 1,
+    });
+
+    cards.push({
+      id: `${deviceId}-motion`,
+      name: "Motion",
+      reading: motion === 1 ? "Detected" : motion === 0 ? "None" : motion != null ? String(motion) : "No data",
+      alert: motion === 1,
+    });
+
+    cards.push({
+      id: `${deviceId}-state`,
+      name: "State",
+      reading: state || "No data",
+      alert: state === "INTRUSION",
+    });
+
+    cards.push({
+      id: `${deviceId}-water`,
+      name: "Water",
+      reading: waterPct != null ? `${waterPct}%` : waterRaw != null ? `raw ${waterRaw}` : "No data",
+      alert: (waterPct != null && waterPct > 0) || (waterRaw != null && waterRaw > 0),
+    });
+
+    cards.push({
+      id: `${deviceId}-pressure`,
+      name: "Pressure",
+      reading: pressurePct != null ? `${pressurePct}%` : pressureRaw != null ? `raw ${pressureRaw}` : "No data",
+      alert: (pressurePct != null && pressurePct > 0) || (pressureRaw != null && pressureRaw > 0),
+    });
+
+    return cards;
+  }
+
+  // Legacy device types (single card each)
+  const tempThreshold = 28;
+  const waterAlertThreshold = 200;
+
+  if (deviceId === "sensor123") {
+    const temp = item.temperature != null ? Number(item.temperature) : null;
+    const humidity = item.humidity != null ? Number(item.humidity) : null;
+    const parts = [];
+    if (temp != null) parts.push(`${temp}°C`);
+    if (humidity != null) parts.push(`${humidity}% humidity`);
+    const reading = parts.length ? parts.join(", ") : "No data";
+    const alert = temp != null && temp > tempThreshold;
+    return [
+      { id: deviceId, name: "Temperature & Humidity", reading, alert },
+    ];
+  }
+
+  if (deviceId === "pressure") {
+    const payload = parsePayload(item.payload);
+    const alertStr = payload?.alert || "UNKNOWN";
+    const value = payload?.pressure_value ?? payload?.pressure_raw ?? "";
+    const reading = value ? `${alertStr} (${value})` : alertStr;
+    const alert =
+      alertStr === "OUT_OF_BED" ||
+      alertStr === "MEDIUM_PRESSURE" ||
+      alertStr === "LIGHT_PRESSURE";
+    return [{ id: deviceId, name: "Bed pressure", reading, alert }];
+  }
+
+  if (deviceId === "water") {
+    const payload = parsePayload(item.payload);
+    const waterLevel =
+      payload?.waterLevel != null ? Number(payload.waterLevel) : null;
+    const reading =
+      waterLevel != null ? `Water level ${waterLevel}` : "No data";
+    const alert = waterLevel != null && waterLevel >= waterAlertThreshold;
+    return [{ id: deviceId, name: "Water / flood", reading, alert }];
+  }
+
+  return [];
+}
 
 // Login endpoint
 app.post("/api/login", async (req, res) => {
@@ -120,7 +282,150 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
+// Format Unix timestamp (seconds) as "YYYY-MM-DD HH:mm"
+function formatLogTime(ts) {
+  if (ts == null) return "";
+  const d = new Date(Number(ts) * 1000);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day} ${h}:${min}`;
+}
+
+// Build one log entry from a sensor item (cpu-01 style)
+function itemToLogEntry(item, index) {
+  const doc = getPayload(item);
+  const door = num(item, "door");
+  const motion = num(item, "motion");
+  const state = str(item, "state");
+  const tempC = num(item, "tempC");
+  const waterPct = num(item, "water_pct");
+  const ts = num(item, "ts") ?? num(item, "timestamp");
+  const device = str(item, "device") || "cpu-01";
+
+  const parts = [];
+  if (state === "INTRUSION") parts.push("Intrusion alert");
+  if (motion === 1) parts.push("Motion detected");
+  if (door === 1) parts.push("Door opened");
+  else if (door === 0) parts.push("Door closed");
+  if (tempC != null) {
+    if (tempC > 35 || tempC < 5) parts.push(`Temperature Alert: ${tempC}°C`);
+    else parts.push(`Temperature: ${tempC}°C`);
+  }
+  if (waterPct != null && waterPct > 0) parts.push(`Water level: ${waterPct}%`);
+
+  const message = parts.length ? parts.join(" | ") : "Sensor event";
+  const time = formatLogTime(ts);
+  return { id: `${device}-${ts}-${index}`, message, time };
+}
+
+// Get recent alert logs from SafeHavenSensorData (same format as before: message + time)
+const LOGS_LIMIT = 50;
+
+app.get("/api/logs", async (req, res) => {
+  try {
+    const logs = [];
+    for (const deviceId of SENSOR_DEVICE_IDS) {
+      const queryCommand = new QueryCommand({
+        TableName: SENSOR_TABLE_NAME,
+        KeyConditionExpression: "deviceId = :did",
+        ExpressionAttributeValues: { ":did": deviceId },
+        Limit: LOGS_LIMIT,
+        ScanIndexForward: false,
+      });
+      const result = await sensorDocClient.send(queryCommand);
+      const items = result.Items || [];
+      items.forEach((item, i) => {
+        logs.push(itemToLogEntry(item, i));
+      });
+    }
+    // Sort by time descending (newest first); entries without time at end
+    logs.sort((a, b) => {
+      if (!a.time) return 1;
+      if (!b.time) return -1;
+      return b.time.localeCompare(a.time);
+    });
+    res.json(logs.slice(0, LOGS_LIMIT));
+  } catch (error) {
+    if (error.name === "ResourceNotFoundException") {
+      return res.status(503).json({
+        error: "Sensor table not found. Check SENSOR_TABLE_NAME and AWS_SENSOR_TABLE_REGION in .env.",
+      });
+    }
+    console.error("Logs error:", error);
+    res.status(500).json({ error: "Failed to load alert logs" });
+  }
+});
+
+// Get latest sensor data for dashboard (from safehavensensordata)
+app.get("/api/sensors", async (req, res) => {
+  try {
+    const cards = [];
+
+    for (const deviceId of SENSOR_DEVICE_IDS) {
+      const queryCommand = new QueryCommand({
+        TableName: SENSOR_TABLE_NAME,
+        KeyConditionExpression: "deviceId = :did",
+        ExpressionAttributeValues: { ":did": deviceId },
+        Limit: 1,
+        ScanIndexForward: false,
+      });
+
+      const result = await sensorDocClient.send(queryCommand);
+      const item = result.Items && result.Items[0] ? result.Items[0] : null;
+      const cardList = mapSensorToCard(deviceId, item);
+      if (Array.isArray(cardList)) cards.push(...cardList);
+    }
+
+    res.json(cards);
+  } catch (error) {
+    if (error.name === "ResourceNotFoundException") {
+      console.error(
+        "Sensors error: DynamoDB table not found.",
+        "Table:",
+        SENSOR_TABLE_NAME,
+        "Region used for sensor table:",
+        sensorRegion
+      );
+      console.error(
+        "Set SENSOR_TABLE_NAME and AWS_SENSOR_TABLE_REGION (e.g. ca-central-1) in .env to match your DynamoDB table."
+      );
+      return res.status(503).json({
+        error:
+          "Sensor table not found. Check SENSOR_TABLE_NAME and AWS_SENSOR_TABLE_REGION in .env.",
+      });
+    }
+    console.error("Sensors error:", error);
+    res.status(500).json({ error: "Failed to load sensor data" });
+  }
+});
+
+// Debug: list DynamoDB tables in the sensor region (to verify table name)
+app.get("/api/debug-sensor-tables", async (req, res) => {
+  try {
+    const cmd = new ListTablesCommand({});
+    const result = await sensorDynamoClient.send(cmd);
+    res.json({
+      region: sensorRegion,
+      tableNameWeExpect: SENSOR_TABLE_NAME,
+      tablesInRegion: result.TableNames || [],
+      found: (result.TableNames || []).includes(SENSOR_TABLE_NAME),
+    });
+  } catch (err) {
+    res.status(500).json({
+      region: sensorRegion,
+      error: err.message,
+      code: err.name,
+    });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(
+    `Sensor table: ${SENSOR_TABLE_NAME}, region: ${sensorRegion}`
+  );
 });
