@@ -284,8 +284,9 @@ app.post("/api/register", async (req, res) => {
 
 // Format Unix timestamp (seconds) as "YYYY-MM-DD HH:mm"
 function formatLogTime(ts) {
-  if (ts == null) return "";
+  if (ts == null || ts !== ts) return "";
   const d = new Date(Number(ts) * 1000);
+  if (Number.isNaN(d.getTime())) return "";
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -302,8 +303,8 @@ function itemToLogEntry(item, index) {
   const state = str(item, "state");
   const tempC = num(item, "tempC");
   const waterPct = num(item, "water_pct");
-  const ts = num(item, "ts") ?? num(item, "timestamp");
-  const device = str(item, "device") || "cpu-01";
+  const ts = num(item, "unixTime") ?? num(item, "ts");
+  const device = str(item, "device") || str(item, "deviceId") || "cpu-01";
 
   const parts = [];
   if (state === "INTRUSION") parts.push("Intrusion alert");
@@ -356,6 +357,99 @@ app.get("/api/logs", async (req, res) => {
     }
     console.error("Logs error:", error);
     res.status(500).json({ error: "Failed to load alert logs" });
+  }
+});
+
+// System notifications from SafeHavenSensorDatabaseV2 (deviceType: sensors, alertLog, alertsActive, health flags)
+app.get("/api/notifications", async (req, res) => {
+  try {
+    const deviceId = "cpu-01";
+    const queryCommand = new QueryCommand({
+      TableName: SENSOR_TABLE_NAME,
+      KeyConditionExpression: "deviceId = :did",
+      ExpressionAttributeValues: { ":did": deviceId },
+      Limit: 1,
+      ScanIndexForward: false,
+    });
+    const result = await sensorDocClient.send(queryCommand);
+    const item = result.Items && result.Items[0] ? result.Items[0] : null;
+
+    if (!item) {
+      return res.json({
+        deviceId,
+        offline: false,
+        lastSeen: null,
+        alertsActive: [],
+        battery: { battery_pct: null, lowBattery: 0, predictedHoursLeft: null, dischargeRate: null },
+        health: { intrusionDetected: 0, highTemp: 0, waterHigh: 0, pressureHigh: 0, lowBattery: 0 },
+        alertLog: [],
+        raw: {},
+      });
+    }
+    const payload =
+      typeof item.payload === "string"
+        ? JSON.parse(item.payload)
+        : item.payload || {};
+
+    const alertLogRaw = payload.alertLog?.L || payload.alertLog;
+
+    const alertLog = Array.isArray(alertLogRaw)
+      ? alertLogRaw.map((entry, i) => {
+          const e = entry.M || entry;
+
+          return {
+            id: `log-${i}-${item.unixTime || i}`,
+            message: e.message?.S || e.message || "Alert",
+            time: e.time?.S || e.time || "",
+          };
+        })
+      : [];
+    const alertsActiveRaw = item.alertsActive;
+    const alertsActive = Array.isArray(alertsActiveRaw)
+      ? alertsActiveRaw.map((a) => (typeof a === "string" ? a : String(a)))
+      : [];
+
+    const num = (v) => (v != null ? Number(v) : null);
+    const battery = {
+      battery_pct: num(item.battery_pct),
+      lowBattery: num(item.lowBattery) || 0,
+      predictedHoursLeft: num(item.predictedHoursLeft),
+      dischargeRate: num(item.dischargeRate),
+    };
+
+    const health = {
+      intrusionDetected: num(item.intrusionDetected) || 0,
+      highTemp: num(item.highTemp) || 0,
+      waterHigh: num(item.waterHigh) || 0,
+      pressureHigh: num(item.pressureHigh) || 0,
+      lowBattery: num(item.lowBattery) || 0,
+    };
+
+    res.json({
+      deviceId: item.deviceId || deviceId,
+      deviceType: item.deviceType || "sensors",
+      offline: Boolean(item.offline),
+      lastSeen: item.lastSeen != null ? String(item.lastSeen) : null,
+      alertsActive,
+      battery,
+      health,
+      alertLog,
+      raw: {
+        door: num(item.door),
+        motion: num(item.motion),
+        tempC: num(item.tempC),
+        pressure_pct: num(item.pressure_pct),
+        water_pct: num(item.water_pct),
+      },
+    });
+  } catch (error) {
+    if (error.name === "ResourceNotFoundException") {
+      return res.status(503).json({
+        error: "Sensor table not found. Check SENSOR_TABLE_NAME and AWS_SENSOR_TABLE_REGION in .env.",
+      });
+    }
+    console.error("Notifications error:", error);
+    res.status(500).json({ error: "Failed to load system notifications" });
   }
 });
 
