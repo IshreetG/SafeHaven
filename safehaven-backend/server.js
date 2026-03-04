@@ -119,15 +119,15 @@ function mapSensorToCard(deviceId, item) {
     cards.push({
       id: `${deviceId}-motion`,
       name: "Motion",
-      reading: motion === 1 ? "Detected" : motion === 0 ? "None" : motion != null ? String(motion) : "No data",
+      reading:
+        motion === 1
+          ? "Motion Detected"
+          : motion === -1
+          ? "No Motion Detected"
+          : motion != null
+          ? `Unknown (${motion})`
+          : "No data",
       alert: motion === 1,
-    });
-
-    cards.push({
-      id: `${deviceId}-state`,
-      name: "State",
-      reading: state || "No data",
-      alert: state === "INTRUSION",
     });
 
     cards.push({
