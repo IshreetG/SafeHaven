@@ -282,17 +282,22 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
-// Format Unix timestamp (seconds) as "YYYY-MM-DD HH:mm"
-function formatLogTime(ts) {
-  if (ts == null || ts !== ts) return "";
-  const d = new Date(Number(ts) * 1000);
-  if (Number.isNaN(d.getTime())) return "";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  const h = String(d.getHours()).padStart(2, "0");
-  const min = String(d.getMinutes()).padStart(2, "0");
-  return `${y}-${m}-${day} ${h}:${min}`;
+function formatLogTime(unixSeconds) {
+  if (unixSeconds == null) return "";
+
+  const n = Number(unixSeconds);
+  if (Number.isNaN(n)) return "";
+
+  return new Date(n * 1000).toLocaleString("en-CA", {
+    timeZone: "America/Toronto",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
 }
 
 // Build one log entry from a sensor item (cpu-01 style)
