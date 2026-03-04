@@ -102,8 +102,17 @@ function mapSensorToCard(deviceId, item) {
 
     const cards = [];
 
+    const timestamp =
+      item.timestamp ??
+      item.unixTime ??
+      item.ts ??
+      null;
+
     cards.push({
       id: `${deviceId}-temp`,
+      deviceId,
+      alertType: "temperature",
+      timestamp,
       name: "Temperature",
       reading: tempC != null ? `${tempC}°C` : "No data",
       alert: tempC != null && (tempC > 35 || tempC < 5),
@@ -111,13 +120,26 @@ function mapSensorToCard(deviceId, item) {
 
     cards.push({
       id: `${deviceId}-door`,
+      deviceId,
+      alertType: "door",
+      timestamp,
       name: "Door",
-      reading: door === 1 ? "Open" : door === 0 ? "Closed" : door != null ? String(door) : "No data",
+      reading:
+        door === 1
+          ? "Open"
+          : door === 0
+          ? "Closed"
+          : door != null
+          ? String(door)
+          : "No data",
       alert: door === 1,
     });
 
     cards.push({
       id: `${deviceId}-motion`,
+      deviceId,
+      alertType: "motion",
+      timestamp,
       name: "Motion",
       reading:
         motion === 1
@@ -132,16 +154,36 @@ function mapSensorToCard(deviceId, item) {
 
     cards.push({
       id: `${deviceId}-water`,
+      deviceId,
+      alertType: "water",
+      timestamp,
       name: "Water",
-      reading: waterPct != null ? `${waterPct}%` : waterRaw != null ? `raw ${waterRaw}` : "No data",
-      alert: (waterPct != null && waterPct > 0) || (waterRaw != null && waterRaw > 0),
+      reading:
+        waterPct != null
+          ? `${waterPct}%`
+          : waterRaw != null
+          ? `raw ${waterRaw}`
+          : "No data",
+      alert:
+        (waterPct != null && waterPct > 0) ||
+        (waterRaw != null && waterRaw > 0),
     });
 
     cards.push({
       id: `${deviceId}-pressure`,
+      deviceId,
+      alertType: "pressure",
+      timestamp,
       name: "Pressure",
-      reading: pressurePct != null ? `${pressurePct}%` : pressureRaw != null ? `raw ${pressureRaw}` : "No data",
-      alert: (pressurePct != null && pressurePct > 0) || (pressureRaw != null && pressureRaw > 0),
+      reading:
+        pressurePct != null
+          ? `${pressurePct}%`
+          : pressureRaw != null
+          ? `raw ${pressureRaw}`
+          : "No data",
+      alert:
+        (pressurePct != null && pressurePct > 0) ||
+        (pressureRaw != null && pressureRaw > 0),
     });
 
     return cards;

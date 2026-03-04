@@ -93,12 +93,38 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, []);
 
-  const acknowledgeAlert = (id) => {
-    const updatedData = sensorData.map(sensor =>
-      sensor.id === id ? { ...sensor, alert: false } : sensor
+  // const acknowledgeAlert = (id) => {
+  //   const updatedData = sensorData.map(sensor =>
+  //     sensor.id === id ? { ...sensor, alert: false } : sensor
+  //   );
+  //   setSensorData(updatedData);
+  // };
+
+  const acknowledgeAlert = async (sensor) => {
+  try {
+    await fetch("http://localhost:3000/acknowledge-alert", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        deviceId: "cpu-01",
+        timestamp: sensor.timestamp,
+        alertType: sensor.name
+      }),
+    });
+
+    // update UI after success
+    setSensorData(prev =>
+      prev.map(s =>
+        s.id === sensor.id ? { ...s, alert: false } : s
+      )
     );
-    setSensorData(updatedData);
-  };
+
+  } catch (err) {
+    console.error("Acknowledge failed", err);
+  }
+};
 
   return (
     <div style={dashboardContainerStyle}>
@@ -118,7 +144,7 @@ export default function Dashboard() {
               {sensor.alert ? (
                 <>
                   <div style={alertStyle}>⚠ Alert</div>
-                  <button style={dashboardButtonStyle} onClick={() => acknowledgeAlert(sensor.id)}>
+                  <button style={dashboardButtonStyle} onClick={() => acknowledgeAlert(sensor)}>
                     Acknowledge
                   </button>
                 </>
